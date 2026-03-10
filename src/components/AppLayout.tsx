@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { NavLink } from '@/components/NavLink';
-import { BarChart3, CandlestickChart, LayoutGrid, Network } from 'lucide-react';
+import { BarChart3, ChartCandlestick, LayoutGrid, Network } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const NAV_ITEMS = [
