@@ -1004,9 +1004,9 @@ async function runFullScan(supabase: any) {
   }
 
   const duration = Date.now() - startTime;
-  console.log(`Scan complete in ${(duration / 1000).toFixed(1)}s — ${trendResults.length} trends, ${candlestickResults.length + chartResults.length + structureResults.length} patterns, ${alertResults.length} alerts`);
+  console.log(`Scan complete in ${(duration / 1000).toFixed(1)}s — ${trendResults.length} trends, ${rangeResults.length} ranges, ${candlestickResults.length + chartResults.length + structureResults.length} patterns, ${alertResults.length} alerts`);
 
-  return { duration, symbols: symbols.length, trends: trendResults.length, patterns: candlestickResults.length + chartResults.length + structureResults.length, alerts: alertResults.length };
+  return { duration, symbols: symbols.length, trends: trendResults.length, ranges: rangeResults.length, patterns: candlestickResults.length + chartResults.length + structureResults.length, alerts: alertResults.length };
 }
 
 // ─── Handler ────────────────────────────────────────────────────────
