@@ -176,10 +176,10 @@ export function usePatternScanner(trendAssets: AssetTrend[] = []) {
                 newChart.push({ id: `ch-${symbol}-${tf}-${p.name}-${now}`, symbol: sym, timeframe: tf, pattern: { ...p, significance }, price, detectedAt: now, formedAt, category: 'chart', trendAligned: aligned });
               }
 
-              const msEvents = detectMarketStructure(candles);
+              const msEvents = detectMarketStructure(closedCandles);
               for (const p of msEvents) {
-                const candleTime = (p.candleIndex >= 0 && p.candleIndex < candles.length) ? candles[p.candleIndex].time : 0;
-                const formedAt = candleTime > 0 ? candleTime : (candles[candles.length - 1]?.time ?? now);
+                const candleTime = (p.candleIndex >= 0 && p.candleIndex < closedCandles.length) ? closedCandles[p.candleIndex].time : 0;
+                const formedAt = candleTime > 0 ? candleTime : (closedCandles[closedCandles.length - 1]?.time ?? now);
                 const { significance, aligned } = adjustSignificance(p.significance, p.type, sym, tf, currentTrends);
                 newStructure.push({ id: `ms-${symbol}-${tf}-${p.name}-${now}`, symbol: sym, timeframe: tf, pattern: { ...p, significance }, price, detectedAt: now, formedAt, category: 'structure', trendAligned: aligned });
               }
