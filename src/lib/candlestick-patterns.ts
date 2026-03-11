@@ -71,7 +71,7 @@ export function detectCandlestickPatterns(candles: Candle[], excludeLastCandle =
 
     // Inverted Hammer
     if (upperWick(c) > body * 2 && lowerWick(c) < body * 0.5 && isBearish(prev)) {
-      patterns.push({ name: 'Inverted Hammer', type: 'bullish', significance: 'medium', candleIndex: i, description: 'Potential bullish reversal after downtrend' });
+      patterns.push({ name: 'Inverted Hammer', type: 'bullish', significance: 'medium', candleIndex: i, description: 'Potential bullish reversal after downtrend. Confirm with next bullish candle close. Enter long above high, stop below low.' });
     }
 
     // Shooting Star (bearish reversal at top)
