@@ -155,7 +155,7 @@ export function detectCandlestickPatterns(candles: Candle[], excludeLastCandle =
       if (isBearish(prev2) && isBearish(prev) && isBearish(c) &&
         prev.close < prev2.close && c.close < prev.close &&
         bodySize(prev2) > avg * 0.5 && bodySize(prev) > avg * 0.5 && body > avg * 0.5) {
-        patterns.push({ name: 'Three Black Crows', type: 'bearish', significance: 'high', candleIndex: i, description: 'Three consecutive strong bear candles' });
+        patterns.push({ name: 'Three Black Crows', type: 'bearish', significance: 'high', candleIndex: i, description: 'Three consecutive strong bear candles — strong downtrend continuation. Enter short on pullback to last candle body. Stop above first crow high.' });
       }
 
       // Three Inside Up
