@@ -425,6 +425,123 @@ function TrendCard({
             );
           })()}
 
+          {/* Trend Duration & Reversal Analysis */}
+          {(() => {
+            const td = sig.trendDuration;
+            if (!td) return null;
+            const isBullTrend = sig.direction === 'bull';
+            const fmt = (v: number) => v < 1 ? v.toPrecision(4) : v.toFixed(2);
+            const riskColor = td.exhaustionRisk === 'high' ? 'text-destructive' : td.exhaustionRisk === 'medium' ? 'text-accent' : 'text-primary';
+            const riskBg = td.exhaustionRisk === 'high' ? 'bg-destructive/15' : td.exhaustionRisk === 'medium' ? 'bg-accent/15' : 'bg-primary/15';
+
+            return (
+              <div className="py-1.5 border-t border-border/30 space-y-2">
+                {/* Duration header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-[9px] uppercase text-muted-foreground font-medium">
+                      Trend Duration ({TIMEFRAME_LABELS[tf]})
+                    </span>
+                  </div>
+                  <div className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold ${riskBg} ${riskColor}`}>
+                    <AlertTriangle className="h-2.5 w-2.5" />
+                    {td.exhaustionRisk.toUpperCase()} REVERSAL RISK
+                  </div>
+                </div>
+
+                {/* Duration & move stats */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="rounded bg-secondary px-2 py-1.5">
+                    <div className="text-[8px] uppercase text-muted-foreground">Duration</div>
+                    <div className="text-[11px] font-bold text-foreground tabular-nums">{td.bars} bars</div>
+                  </div>
+                  <div className="rounded bg-secondary px-2 py-1.5">
+                    <div className="text-[8px] uppercase text-muted-foreground">Start Price</div>
+                    <div className="text-[11px] font-bold text-foreground tabular-nums">${fmt(td.startPrice)}</div>
+                  </div>
+                  <div className="rounded bg-secondary px-2 py-1.5">
+                    <div className="text-[8px] uppercase text-muted-foreground">Move</div>
+                    <div className={`text-[11px] font-bold tabular-nums ${td.trendMove >= 0 ? 'trend-bull' : 'trend-bear'}`}>
+                      {td.trendMove >= 0 ? '+' : ''}{td.trendMove.toFixed(2)}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fibonacci Retracement Levels */}
+                <div>
+                  <div className="text-[8px] uppercase text-muted-foreground font-medium mb-1">
+                    {isBullTrend ? 'Retracement Levels (pullback targets)' : 'Retracement Levels (bounce targets)'}
+                  </div>
+                  <div className="space-y-0.5">
+                    {[
+                      { label: 'Fib 0.382', value: td.fibRetrace382, pct: 38.2 },
+                      { label: 'Fib 0.500', value: td.fibRetrace500, pct: 50 },
+                      { label: 'Fib 0.618', value: td.fibRetrace618, pct: 61.8 },
+                    ].map(fib => {
+                      const distPct = ((asset.price - fib.value) / asset.price) * 100;
+                      return (
+                        <div key={fib.label} className="flex items-center justify-between text-[10px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                            <span className="text-foreground font-medium">{fib.label}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="tabular-nums text-foreground">${fmt(fib.value)}</span>
+                            <span className="tabular-nums text-muted-foreground text-[9px]">
+                              ({distPct >= 0 ? '+' : ''}{distPct.toFixed(2)}%)
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Extension Targets */}
+                <div>
+                  <div className="text-[8px] uppercase text-muted-foreground font-medium mb-1">
+                    Extension Targets (continuation)
+                  </div>
+                  <div className="space-y-0.5">
+                    {[
+                      { label: 'Fib 1.272', value: td.fibExtend1272 },
+                      { label: 'Fib 1.618', value: td.fibExtend1618 },
+                    ].map(fib => (
+                      <div key={fib.label} className="flex items-center justify-between text-[10px]">
+                        <div className="flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                          <span className="text-foreground font-medium">{fib.label}</span>
+                        </div>
+                        <span className="tabular-nums text-foreground">${fmt(fib.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ATR Stop */}
+                <div className="flex items-center justify-between text-[10px] py-1 border-t border-border/30">
+                  <span className="text-muted-foreground font-medium">ATR Trailing Stop (2x)</span>
+                  <span className={`font-bold tabular-nums ${isBullTrend ? 'trend-bear' : 'trend-bull'}`}>
+                    ${fmt(td.atrStop)}
+                  </span>
+                </div>
+
+                {/* Exhaustion Signals */}
+                {td.exhaustionSignals.length > 0 && (
+                  <div className="py-1 border-t border-border/30">
+                    <div className="text-[8px] uppercase text-muted-foreground font-medium mb-1">⚠ Exhaustion Signals</div>
+                    <div className="flex flex-wrap gap-1">
+                      {td.exhaustionSignals.map((s, i) => (
+                        <span key={i} className={`rounded px-1.5 py-0.5 text-[9px] ${riskBg} ${riskColor}`}>{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Quick stats */}
           <div className="flex gap-3 pt-1 border-t border-border/30 text-[9px] text-muted-foreground">
             <span>RSI: {sig.rsi?.toFixed(0) ?? '—'}</span>
