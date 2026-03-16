@@ -1406,7 +1406,8 @@ async function runFullScan(supabase: any) {
     { id: "chart", data: chartResults, scanned_at: now },
     { id: "structure", data: structureResults, scanned_at: now },
     { id: "alerts", data: alertResults.slice(0, 200), scanned_at: now },
-    { id: "metadata", data: { duration: Date.now() - startTime, symbolCount: symbols.length, trendCount: trendResults.filter((t: any) => Object.keys(t.signals).length > 0).length, rangeCount: rangeResults.length, patternCount: candlestickResults.length + chartResults.length + structureResults.length }, scanned_at: now },
+    { id: "indicator_signals", data: indicatorSignalResults, scanned_at: now },
+    { id: "metadata", data: { duration: Date.now() - startTime, symbolCount: symbols.length, trendCount: trendResults.filter((t: any) => Object.keys(t.signals).length > 0).length, rangeCount: rangeResults.length, patternCount: candlestickResults.length + chartResults.length + structureResults.length, indicatorSignals: indicatorSignalResults.length }, scanned_at: now },
   ];
 
   for (const u of updates) {

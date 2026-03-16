@@ -15,6 +15,7 @@ const NAV_GROUPS = [
     icon: TrendingUp,
     items: [
       { to: '/', label: 'Trend Scanner', icon: BarChart3 },
+      { to: '/indicator-scanner', label: 'Indicators', icon: Activity },
       { to: '/confluence', label: 'Confluence', icon: Zap },
       { to: '/range-scanner', label: 'Range', icon: Layers },
     ],

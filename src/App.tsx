@@ -58,6 +58,7 @@ const App = () => (
                   <Route path="/correlation" element={<CorrelationMatrix />} />
                   <Route path="/sector-rotation" element={<SectorRotation />} />
                   <Route path="/sectors" element={<SectorRotation />} />
+                  <Route path="/indicator-scanner" element={<IndicatorScanner />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>
