@@ -1397,6 +1397,256 @@ async function runFullScan(supabase: any) {
     if (i + BATCH_SIZE < symbols.length) await new Promise(r => setTimeout(r, 50));
   }
 
+  // 3b. Reversal scan
+  const REVERSAL_TIMEFRAMES: Timeframe[] = ["15", "60", "240", "D", "W"];
+  const reversalResults: any[] = [];
+
+  function getRSISeriesCron(closes: number[], period = 14): number[] {
+    const series: number[] = [];
+    for (let end = period + 1; end <= closes.length; end++) series.push(calculateRSI(closes.slice(0, end), period));
+    return series;
+  }
+
+  function detectReversalCandlesticksCron(candles: Candle[]): { name: string; type: "bullish" | "bearish"; strength: number }[] {
+    if (candles.length < 5) return [];
+    const results: { name: string; type: "bullish" | "bearish"; strength: number }[] = [];
+    const len = candles.length;
+    const c = candles[len - 1], prev0 = candles[len - 2], prev1 = candles[len - 3];
+    const body = Math.abs(c.close - c.open), range = c.high - c.low;
+    const prevBody = Math.abs(prev0.close - prev0.open);
+    const isBull = c.close > c.open, prevBull = prev0.close > prev0.open;
+    const avgBody = candles.slice(-14).reduce((s, x) => s + Math.abs(x.close - x.open), 0) / 14;
+    const upperWick = c.high - Math.max(c.open, c.close);
+    const lowerWick = Math.min(c.open, c.close) - c.low;
+    if (lowerWick > body * 2 && upperWick < body * 0.5 && !prevBull) results.push({ name: "Hammer", type: "bullish", strength: 8 });
+    if (upperWick > body * 2 && lowerWick < body * 0.5 && !prevBull) results.push({ name: "Inverted Hammer", type: "bullish", strength: 6 });
+    if (upperWick > body * 2 && lowerWick < body * 0.5 && prevBull) results.push({ name: "Shooting Star", type: "bearish", strength: 8 });
+    if (lowerWick > body * 2 && upperWick < body * 0.5 && prevBull) results.push({ name: "Hanging Man", type: "bearish", strength: 7 });
+    if (isBull && !prevBull && c.close > prev0.open && c.open < prev0.close && body > prevBody) results.push({ name: "Bullish Engulfing", type: "bullish", strength: 9 });
+    if (!isBull && prevBull && c.close < prev0.open && c.open > prev0.close && body > prevBody) results.push({ name: "Bearish Engulfing", type: "bearish", strength: 9 });
+    if (len >= 3) {
+      const p2Bull = prev1.close > prev1.open, p2Body = Math.abs(prev1.close - prev1.open);
+      if (!p2Bull && p2Body > avgBody * 0.5 && prevBody < avgBody * 0.3 && isBull && body > avgBody * 0.5) results.push({ name: "Morning Star", type: "bullish", strength: 10 });
+      if (p2Bull && p2Body > avgBody * 0.5 && prevBody < avgBody * 0.3 && !isBull && body > avgBody * 0.5) results.push({ name: "Evening Star", type: "bearish", strength: 10 });
+    }
+    if (body < range * 0.1 && range > 0) {
+      const recentBull = candles.slice(-4, -1).every(x => x.close > x.open);
+      const recentBear = candles.slice(-4, -1).every(x => x.close < x.open);
+      if (recentBull) results.push({ name: "Doji after uptrend", type: "bearish", strength: 6 });
+      if (recentBear) results.push({ name: "Doji after downtrend", type: "bullish", strength: 6 });
+    }
+    if (isBull && !prevBull && c.open < prev0.low && c.close > (prev0.open + prev0.close) / 2 && c.close < prev0.open) results.push({ name: "Piercing Line", type: "bullish", strength: 7 });
+    if (!isBull && prevBull && c.open > prev0.high && c.close < (prev0.open + prev0.close) / 2 && c.close > prev0.open) results.push({ name: "Dark Cloud Cover", type: "bearish", strength: 7 });
+    if (len >= 3) {
+      const all3Bull = [prev1, prev0, c].every(x => x.close > x.open && Math.abs(x.close - x.open) > avgBody * 0.5);
+      const all3Bear = [prev1, prev0, c].every(x => x.close < x.open && Math.abs(x.close - x.open) > avgBody * 0.5);
+      if (all3Bull && c.close > prev0.close && prev0.close > prev1.close) results.push({ name: "Three White Soldiers", type: "bullish", strength: 9 });
+      if (all3Bear && c.close < prev0.close && prev0.close < prev1.close) results.push({ name: "Three Black Crows", type: "bearish", strength: 9 });
+    }
+    return results;
+  }
+
+  function detectRSIDivergenceCron(candles: Candle[], closes: number[]): { type: "bull" | "bear"; strength: number } | null {
+    if (candles.length < 30) return null;
+    const rsiSeries = getRSISeriesCron(closes, 14);
+    if (rsiSeries.length < 20) return null;
+    const lookback = 20, rc = candles.slice(-lookback), rr = rsiSeries.slice(-lookback);
+    let pL1 = Infinity, pL2 = Infinity, rL1 = 100, rL2 = 100, l1 = -1, l2 = -1;
+    for (let i = 2; i < rc.length - 2; i++) {
+      if (rc[i].low < rc[i-1].low && rc[i].low < rc[i-2].low && rc[i].low < rc[i+1].low && rc[i].low < rc[i+2].low) {
+        if (l1 === -1) { pL1 = rc[i].low; rL1 = rr[i]; l1 = i; }
+        else { pL2 = rc[i].low; rL2 = rr[i]; l2 = i; }
+      }
+    }
+    if (l2 > l1 && pL2 < pL1 && rL2 > rL1 && rL2 < 40) return { type: "bull", strength: rL2 < 30 ? 8 : 6 };
+    let pH1 = -Infinity, pH2 = -Infinity, rH1 = 0, rH2 = 0, h1 = -1, h2 = -1;
+    for (let i = 2; i < rc.length - 2; i++) {
+      if (rc[i].high > rc[i-1].high && rc[i].high > rc[i-2].high && rc[i].high > rc[i+1].high && rc[i].high > rc[i+2].high) {
+        if (h1 === -1) { pH1 = rc[i].high; rH1 = rr[i]; h1 = i; }
+        else { pH2 = rc[i].high; rH2 = rr[i]; h2 = i; }
+      }
+    }
+    if (h2 > h1 && pH2 > pH1 && rH2 < rH1 && rH2 > 60) return { type: "bear", strength: rH2 > 70 ? 8 : 6 };
+    return null;
+  }
+
+  function detectStructureShiftCron(candles: Candle[]): { type: "bull" | "bear"; name: string } | null {
+    if (candles.length < 20) return null;
+    const lb = 3, highs: { idx: number; price: number }[] = [], lows: { idx: number; price: number }[] = [];
+    for (let i = lb; i < candles.length - lb; i++) {
+      let isH = true, isL = true;
+      for (let j = 1; j <= lb; j++) { if (candles[i].high <= candles[i-j].high || candles[i].high <= candles[i+j].high) isH = false; if (candles[i].low >= candles[i-j].low || candles[i].low >= candles[i+j].low) isL = false; }
+      if (isH) highs.push({ idx: i, price: candles[i].high });
+      if (isL) lows.push({ idx: i, price: candles[i].low });
+    }
+    const price = candles[candles.length - 1].close;
+    if (highs.length >= 2 && lows.length >= 2) {
+      const lth = highs.slice(-2), ltl = lows.slice(-2);
+      if (lth[0].price > lth[1].price && ltl[0].price > ltl[1].price && price > lth[1].price) return { type: "bull", name: "CHoCH (Bullish)" };
+      if (lth[1].price > lth[0].price && ltl[1].price > ltl[0].price && price < ltl[1].price) return { type: "bear", name: "CHoCH (Bearish)" };
+    }
+    return null;
+  }
+
+  function analyzeReversalCron(candles: Candle[]): { direction: "bull" | "bear"; score: number; confirmations: any[]; categoryCount: number; invalidation: number; target: number } | null {
+    if (candles.length < 60) return null;
+    const closes = candles.map(c => c.close), price = closes[closes.length - 1], atr = calculateATR(candles, 14);
+    const confirmations: any[] = [];
+
+    // Momentum
+    const rsi = calculateRSI(closes, 14), macd = calculateMACD(closes), stoch = calculateStochastic(candles);
+    const stochRSI = calculateStochRSI(closes), willR = calculateWilliamsR(candles), cci = calculateCCI(candles);
+    const mfi = calculateMFI(candles), tsi = calculateTSI(closes), roc = calculateROC(closes);
+
+    if (rsi < 25) confirmations.push({ category: "momentum", signal: "bull", name: "RSI Oversold", weight: 5, detail: `RSI ${rsi.toFixed(1)}` });
+    else if (rsi < 35) confirmations.push({ category: "momentum", signal: "bull", name: "RSI Near Oversold", weight: 3, detail: `RSI ${rsi.toFixed(1)}` });
+    if (rsi > 75) confirmations.push({ category: "momentum", signal: "bear", name: "RSI Overbought", weight: 5, detail: `RSI ${rsi.toFixed(1)}` });
+    else if (rsi > 65) confirmations.push({ category: "momentum", signal: "bear", name: "RSI Near Overbought", weight: 3, detail: `RSI ${rsi.toFixed(1)}` });
+
+    const rsiDiv = detectRSIDivergenceCron(candles, closes);
+    if (rsiDiv) confirmations.push({ category: "momentum", signal: rsiDiv.type, name: "RSI Divergence", weight: rsiDiv.strength, detail: `${rsiDiv.type} divergence` });
+
+    if (macd.histogram > 0 && (macd as any).prevHistogram !== undefined) {
+      // Use simple histogram sign check
+    }
+    // MACD histogram cross - compute prev manually
+    const prevCloses = closes.slice(0, -1);
+    const prevMacd = calculateMACD(prevCloses);
+    if (macd.histogram > 0 && prevMacd.histogram < 0) confirmations.push({ category: "momentum", signal: "bull", name: "MACD Hist Cross Up", weight: 5, detail: `Histogram flipped positive` });
+    if (macd.histogram < 0 && prevMacd.histogram > 0) confirmations.push({ category: "momentum", signal: "bear", name: "MACD Hist Cross Down", weight: 5, detail: `Histogram flipped negative` });
+    if (Math.abs(macd.histogram) < Math.abs(prevMacd.histogram) * 0.5) {
+      confirmations.push({ category: "momentum", signal: prevMacd.histogram > 0 ? "bear" : "bull", name: "MACD Weakening", weight: 3, detail: `Histogram shrinking` });
+    }
+
+    if (stoch.k < 20 && stoch.k > stoch.d) confirmations.push({ category: "momentum", signal: "bull", name: "Stoch Oversold Cross", weight: 5, detail: `%K=${stoch.k.toFixed(1)}` });
+    if (stoch.k > 80 && stoch.k < stoch.d) confirmations.push({ category: "momentum", signal: "bear", name: "Stoch Overbought Cross", weight: 5, detail: `%K=${stoch.k.toFixed(1)}` });
+    if (stochRSI.k < 15) confirmations.push({ category: "momentum", signal: "bull", name: "StochRSI Oversold", weight: 4, detail: `K=${stochRSI.k.toFixed(1)}` });
+    if (stochRSI.k > 85) confirmations.push({ category: "momentum", signal: "bear", name: "StochRSI Overbought", weight: 4, detail: `K=${stochRSI.k.toFixed(1)}` });
+    if (willR < -80) confirmations.push({ category: "momentum", signal: "bull", name: "Williams %R Oversold", weight: 3, detail: `%R=${willR.toFixed(1)}` });
+    if (willR > -20) confirmations.push({ category: "momentum", signal: "bear", name: "Williams %R Overbought", weight: 3, detail: `%R=${willR.toFixed(1)}` });
+    if (cci < -200) confirmations.push({ category: "momentum", signal: "bull", name: "CCI Extreme Low", weight: 4, detail: `CCI=${cci.toFixed(0)}` });
+    if (cci > 200) confirmations.push({ category: "momentum", signal: "bear", name: "CCI Extreme High", weight: 4, detail: `CCI=${cci.toFixed(0)}` });
+    if (mfi < 20) confirmations.push({ category: "momentum", signal: "bull", name: "MFI Oversold", weight: 3, detail: `MFI=${mfi.toFixed(1)}` });
+    if (mfi > 80) confirmations.push({ category: "momentum", signal: "bear", name: "MFI Overbought", weight: 3, detail: `MFI=${mfi.toFixed(1)}` });
+    if (tsi < -25) confirmations.push({ category: "momentum", signal: "bull", name: "TSI Extreme Low", weight: 3, detail: `TSI=${tsi.toFixed(1)}` });
+    if (tsi > 25) confirmations.push({ category: "momentum", signal: "bear", name: "TSI Extreme High", weight: 3, detail: `TSI=${tsi.toFixed(1)}` });
+    if (roc < -10) confirmations.push({ category: "momentum", signal: "bull", name: "ROC Extreme Drop", weight: 3, detail: `ROC=${roc.toFixed(1)}%` });
+    if (roc > 10) confirmations.push({ category: "momentum", signal: "bear", name: "ROC Extreme Rise", weight: 3, detail: `ROC=${roc.toFixed(1)}%` });
+
+    // Trend exhaustion
+    const { adx: adxV, plusDI, minusDI } = calculateADX(candles);
+    const supertrend = calculateSupertrend(candles);
+    const psar = calculateParabolicSAR(candles);
+    const ichimoku = calculateIchimoku(candles);
+    const ema50 = calculateEMA(closes, 50);
+    const e50 = ema50[ema50.length - 1];
+    const distFrom50 = ((price - e50) / e50) * 100;
+
+    // Supertrend — check direction change via prev candles
+    const prevSupertrend = calculateSupertrend(candles.slice(0, -1));
+    if (supertrend.direction !== prevSupertrend.direction) confirmations.push({ category: "trend", signal: supertrend.direction, name: "Supertrend Flip", weight: 7, detail: `Flipped to ${supertrend.direction}` });
+
+    const prevPsar = calculateParabolicSAR(candles.slice(0, -1));
+    if (psar.direction !== prevPsar.direction) confirmations.push({ category: "trend", signal: psar.direction, name: "Parabolic SAR Flip", weight: 6, detail: `SAR flipped to ${psar.direction}` });
+
+    if (adxV > 25 && plusDI > minusDI && minusDI > plusDI * 0.7) confirmations.push({ category: "trend", signal: "bear", name: "DI Convergence", weight: 5, detail: `+DI narrowing vs -DI` });
+    if (adxV > 25 && minusDI > plusDI && plusDI > minusDI * 0.7) confirmations.push({ category: "trend", signal: "bull", name: "DI Convergence", weight: 5, detail: `-DI narrowing vs +DI` });
+    if (distFrom50 > 8) confirmations.push({ category: "trend", signal: "bear", name: "Overextended Above MA50", weight: 5, detail: `${distFrom50.toFixed(1)}% above` });
+    if (distFrom50 < -8) confirmations.push({ category: "trend", signal: "bull", name: "Overextended Below MA50", weight: 5, detail: `${Math.abs(distFrom50).toFixed(1)}% below` });
+
+    // Ichimoku TK cross
+    const prevIchi = calculateIchimoku(candles.slice(0, -1));
+    const tkNow = ichimoku.tenkan > ichimoku.kijun;
+    const tkPrev = prevIchi.tenkan > prevIchi.kijun;
+    if (tkNow && !tkPrev) confirmations.push({ category: "trend", signal: "bull", name: "Ichimoku TK Cross Up", weight: 5, detail: `Tenkan crossed above Kijun` });
+    if (!tkNow && tkPrev) confirmations.push({ category: "trend", signal: "bear", name: "Ichimoku TK Cross Down", weight: 5, detail: `Tenkan crossed below Kijun` });
+
+    // Volatility
+    const bb = calculateBollingerBands(closes);
+    const kc = calculateKeltnerChannels(candles);
+    const squeeze = bb.lower > kc.lower && bb.upper < kc.upper;
+    const prevBB = calculateBollingerBands(closes.slice(0, -1));
+    const prevKC = calculateKeltnerChannels(candles.slice(0, -1));
+    const prevSqueeze = prevBB.lower > prevKC.lower && prevBB.upper < prevKC.upper;
+    if (bb.percentB < 0 && price > bb.lower) confirmations.push({ category: "volatility", signal: "bull", name: "BB Lower Pierce Return", weight: 6, detail: `Price pierced lower band and recovered` });
+    if (bb.percentB > 1 && price < bb.upper) confirmations.push({ category: "volatility", signal: "bear", name: "BB Upper Pierce Return", weight: 6, detail: `Price pierced upper band and rejected` });
+    if (bb.percentB < 0.05) confirmations.push({ category: "volatility", signal: "bull", name: "BB Lower Extreme", weight: 4, detail: `%B=${(bb.percentB * 100).toFixed(1)}%` });
+    if (bb.percentB > 0.95) confirmations.push({ category: "volatility", signal: "bear", name: "BB Upper Extreme", weight: 4, detail: `%B=${(bb.percentB * 100).toFixed(1)}%` });
+    if (!squeeze && prevSqueeze) {
+      const dir = price > bb.middle ? "bull" : "bear";
+      confirmations.push({ category: "volatility", signal: dir, name: "Squeeze Release", weight: 5, detail: `BB squeezed and expanding ${dir}ward` });
+    }
+
+    // Volume
+    const volRatio = calculateVolumeRatio(candles);
+    const obv = calculateOBV(candles);
+    const cmf = calculateCMF(candles);
+    const lastCandle = candles[candles.length - 1], lastIsBull = lastCandle.close > lastCandle.open;
+    if (volRatio > 2) confirmations.push({ category: "volume", signal: lastIsBull ? "bull" : "bear", name: "Volume Spike", weight: 5, detail: `Volume ${volRatio.toFixed(1)}x avg` });
+    const priceUp = closes[closes.length - 1] > closes[closes.length - 6];
+    if (priceUp && obv.trend === "bear") confirmations.push({ category: "volume", signal: "bear", name: "OBV Bearish Divergence", weight: 5, detail: `Price up, OBV down` });
+    if (!priceUp && obv.trend === "bull") confirmations.push({ category: "volume", signal: "bull", name: "OBV Bullish Divergence", weight: 5, detail: `Price down, OBV up` });
+    if (cmf < -0.15) confirmations.push({ category: "volume", signal: "bear", name: "CMF Selling Pressure", weight: 4, detail: `CMF=${cmf.toFixed(3)}` });
+    if (cmf > 0.15) confirmations.push({ category: "volume", signal: "bull", name: "CMF Buying Pressure", weight: 4, detail: `CMF=${cmf.toFixed(3)}` });
+    if (volRatio > 3.5) confirmations.push({ category: "volume", signal: lastIsBull ? "bull" : "bear", name: "Climax Volume", weight: 5, detail: `Extreme volume ${volRatio.toFixed(1)}x` });
+
+    // Pattern
+    const cp = detectReversalCandlesticksCron(candles.slice(0, -1));
+    for (const p of cp) confirmations.push({ category: "pattern", signal: p.type === "bullish" ? "bull" : "bear", name: p.name, weight: p.strength, detail: `${p.name} pattern` });
+
+    // Structure
+    const ss = detectStructureShiftCron(candles);
+    if (ss) confirmations.push({ category: "structure", signal: ss.type, name: ss.name, weight: 7, detail: ss.name });
+
+    if (confirmations.length === 0) return null;
+    let bullScore = 0, bearScore = 0;
+    const bullConfs = confirmations.filter((c: any) => c.signal === "bull");
+    const bearConfs = confirmations.filter((c: any) => c.signal === "bear");
+    for (const c of bullConfs) bullScore += c.weight;
+    for (const c of bearConfs) bearScore += c.weight;
+    const direction = bullScore > bearScore ? "bull" as const : "bear" as const;
+    const dominantConfs = direction === "bull" ? bullConfs : bearConfs;
+    const rawScore = direction === "bull" ? bullScore : bearScore;
+    const categories = new Set(dominantConfs.map((c: any) => c.category));
+    const categoryCount = categories.size;
+    let categoryBonus = categoryCount >= 5 ? 15 : categoryCount >= 4 ? 10 : categoryCount >= 3 ? 5 : 0;
+    const opposingScore = direction === "bull" ? bearScore : bullScore;
+    const conflictPenalty = Math.min(15, opposingScore * 0.5);
+    const score = Math.min(100, Math.max(0, rawScore + categoryBonus - conflictPenalty));
+    if (categoryCount < 2 || score < 30) return null;
+    const invalidation = direction === "bull" ? price - 2 * atr : price + 2 * atr;
+    const target = direction === "bull" ? price + 3 * atr : price - 3 * atr;
+    return { direction, score, confirmations: dominantConfs, categoryCount, invalidation, target };
+  }
+
+  for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+    const batch = symbols.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async ({ symbol, category, price, change, vol }) => {
+      for (const tf of REVERSAL_TIMEFRAMES) {
+        try {
+          const candles = await fetchKlines(symbol, tf, category, 220);
+          if (candles.length < 60) continue;
+          const result = analyzeReversalCron(candles);
+          if (!result) continue;
+          const grade: "S" | "A" | "B" | "C" = result.score >= 75 ? "S" : result.score >= 60 ? "A" : result.score >= 45 ? "B" : "C";
+          if (grade === "C") continue;
+          const rr = Math.abs(result.target - price) / Math.abs(price - result.invalidation);
+          reversalResults.push({
+            symbol, price, change24h: change, volume24h: vol, timeframe: tf,
+            direction: result.direction, score: Math.round(result.score), grade,
+            confirmations: result.confirmations, categoryCount: result.categoryCount,
+            topReason: result.confirmations.sort((a: any, b: any) => b.weight - a.weight)[0]?.name ?? "Multiple signals",
+            timestamp: Date.now(), invalidation: result.invalidation, target: result.target,
+            riskReward: Math.round(rr * 10) / 10,
+          });
+        } catch { /* skip */ }
+      }
+    }));
+    if (i + BATCH_SIZE < symbols.length) await new Promise(r => setTimeout(r, 50));
+  }
+  reversalResults.sort((a: any, b: any) => b.score - a.score);
+  const topReversals = reversalResults.slice(0, 50);
+
   // 4. Store results in DB
   const now = new Date().toISOString();
   const updates = [
@@ -1407,7 +1657,8 @@ async function runFullScan(supabase: any) {
     { id: "structure", data: structureResults, scanned_at: now },
     { id: "alerts", data: alertResults.slice(0, 200), scanned_at: now },
     { id: "indicator_signals", data: indicatorSignalResults, scanned_at: now },
-    { id: "metadata", data: { duration: Date.now() - startTime, symbolCount: symbols.length, trendCount: trendResults.filter((t: any) => Object.keys(t.signals).length > 0).length, rangeCount: rangeResults.length, patternCount: candlestickResults.length + chartResults.length + structureResults.length, indicatorSignals: indicatorSignalResults.length }, scanned_at: now },
+    { id: "reversals", data: topReversals, scanned_at: now },
+    { id: "metadata", data: { duration: Date.now() - startTime, symbolCount: symbols.length, trendCount: trendResults.filter((t: any) => Object.keys(t.signals).length > 0).length, rangeCount: rangeResults.length, patternCount: candlestickResults.length + chartResults.length + structureResults.length, indicatorSignals: indicatorSignalResults.length, reversals: topReversals.length }, scanned_at: now },
   ];
 
   for (const u of updates) {
@@ -1416,7 +1667,7 @@ async function runFullScan(supabase: any) {
   }
 
   const duration = Date.now() - startTime;
-  console.log(`Scan complete in ${(duration / 1000).toFixed(1)}s — ${trendResults.length} trends, ${rangeResults.length} ranges, ${candlestickResults.length + chartResults.length + structureResults.length} patterns, ${alertResults.length} alerts`);
+  console.log(`Scan complete in ${(duration / 1000).toFixed(1)}s — ${trendResults.length} trends, ${rangeResults.length} ranges, ${candlestickResults.length + chartResults.length + structureResults.length} patterns, ${topReversals.length} reversals, ${alertResults.length} alerts`);
 
   return { duration, symbols: symbols.length, trends: trendResults.length, ranges: rangeResults.length, patterns: candlestickResults.length + chartResults.length + structureResults.length, alerts: alertResults.length };
 }
