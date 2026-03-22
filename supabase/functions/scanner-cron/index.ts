@@ -1415,9 +1415,7 @@ async function runFullScan(supabase: any) {
     if (i + BATCH_SIZE < symbols.length) await new Promise(r => setTimeout(r, 50));
   }
 
-  // 3b. Reversal scan
-  const REVERSAL_TIMEFRAMES: Timeframe[] = ["15", "60", "240", "D", "W"];
-  const reversalResults: any[] = [];
+  // 3b. Reversal helper functions (reversalResults populated in indicator scan loop above)
 
   function getRSISeriesCron(closes: number[], period = 14): number[] {
     const series: number[] = [];
