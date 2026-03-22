@@ -32,7 +32,7 @@ interface ReversalSignal {
   riskReward: number;
 }
 
-type GradeFilter = 'all' | 'S' | 'A' | 'B';
+type GradeFilter = 'all' | 'S' | 'A' | 'B' | 'C';
 type DirFilter = 'all' | 'bull' | 'bear';
 type TfFilter = 'all' | '15' | '60' | '240' | 'D' | 'W';
 
