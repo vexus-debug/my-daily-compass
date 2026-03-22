@@ -1056,9 +1056,10 @@ async function runFullScan(supabase: any) {
     if (i + BATCH_SIZE < symbols.length) await new Promise(r => setTimeout(r, 50));
   }
 
-  // 2.7. Indicator Signal scan — detect flips, crossovers, breakouts
-  const INDICATOR_TFS: Timeframe[] = ["15", "60", "240", "D"];
+  // 2.7. Indicator Signal scan + Reversal analysis — detect flips, crossovers, breakouts, reversals
+  const INDICATOR_TFS: Timeframe[] = ["15", "60", "240", "D", "W"];
   const indicatorSignalResults: any[] = [];
+  const reversalResults: any[] = [];
 
   for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
     const batch = symbols.slice(i, i + BATCH_SIZE);
